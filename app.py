@@ -78,27 +78,27 @@ html, body, [class*="css"], .stApp, .stMarkdown, .stText, button, input, textare
 }
 
 #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
-.block-container { padding-top: 2.5rem !important; padding-bottom: 4rem !important; max-width: 1200px; }
+.block-container { padding-top: 0.75rem !important; padding-bottom: 2rem !important; max-width: 1200px; }
 
 /* ---------- Hero Başlık ---------- */
 .hero {
     text-align: center;
-    padding: 1.5rem 0 2.5rem 0;
+    padding: 0.25rem 0 1rem 0;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.25rem;
 }
 .hero-badge {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.4rem 1rem;
+    padding: 0.3rem 0.85rem;
     background: var(--accent-dim);
     border: 1px solid var(--accent-border);
     border-radius: 999px;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 500;
     color: var(--accent);
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.6rem;
     letter-spacing: 0.02em;
 }
 .hero-badge .dot {
@@ -110,23 +110,23 @@ html, body, [class*="css"], .stApp, .stMarkdown, .stText, button, input, textare
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .hero h1 {
-    font-size: 3.2rem;
+    font-size: 2.4rem;
     font-weight: 800;
     letter-spacing: -0.03em;
-    margin: 0 0 0.75rem 0;
+    margin: 0 0 0.4rem 0;
     background: linear-gradient(135deg, #F1F5F9 0%, #2DD4BF 60%, #5EEAD4 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    line-height: 1.1;
+    line-height: 1.05;
 }
 .hero p {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     color: var(--text-secondary);
-    max-width: 640px;
+    max-width: 620px;
     margin: 0 auto;
     font-weight: 400;
-    line-height: 1.6;
+    line-height: 1.5;
 }
 
 /* ---------- Section Başlıkları ---------- */
@@ -166,7 +166,8 @@ section[data-testid="stSidebar"] {
     background: var(--bg-secondary) !important;
     border-right: 1px solid var(--border);
 }
-section[data-testid="stSidebar"] > div { padding-top: 2rem; }
+section[data-testid="stSidebar"] > div { padding-top: 0 !important; }
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0.25rem !important; }
 section[data-testid="stSidebar"] h2 {
     font-size: 1.15rem;
     font-weight: 700;
@@ -210,48 +211,22 @@ section[data-testid="stSidebar"] [data-testid="baseButton-headerNoPadding"] {
     pointer-events: none !important;
 }
 
-/* Sidebar kapalıyken görünen "geri aç" oku — tüm Streamlit sürümlerini kapsa */
+/* Streamlit'in yerleşik sidebar chevron'unu tamamen gizle —
+   bizim "⚙️ Ayarlar" butonumuz onun yerini alıyor. */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="stSidebarCollapseButton"],
 [data-testid="collapsedControl"],
 button[kind="header"],
 [aria-label="Open sidebar"],
-[aria-label="open sidebar"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: var(--accent) !important;
-    border: 2px solid var(--accent) !important;
-    border-radius: 10px !important;
-    color: #001014 !important;
-    z-index: 999999 !important;
-    top: 0.9rem !important;
-    left: 0.9rem !important;
-    width: 44px !important;
-    height: 44px !important;
-    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
-    animation: sb-pulse 2.2s ease-out infinite;
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-[data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg,
-button[kind="header"] svg,
-[aria-label="Open sidebar"] svg {
-    color: #001014 !important;
-    fill: #001014 !important;
-    width: 22px !important;
-    height: 22px !important;
-}
-[data-testid="stSidebarCollapsedControl"]:hover,
-[data-testid="collapsedControl"]:hover,
-button[kind="header"]:hover {
-    transform: scale(1.08);
-    box-shadow: 0 0 18px rgba(0, 229, 255, 0.7);
-}
-@keyframes sb-pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
-    70%  { box-shadow: 0 0 0 14px rgba(0, 229, 255, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+[aria-label="open sidebar"],
+[aria-label="Close sidebar"],
+[aria-label="close sidebar"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 
 /* ---------- Inputs: selectbox, text input, textarea ---------- */
