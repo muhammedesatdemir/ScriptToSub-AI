@@ -9,6 +9,7 @@ import streamlit as st
 import tempfile
 import subprocess
 import os
+import re
 import json
 from pathlib import Path
 
@@ -471,23 +472,121 @@ if "work_dir" not in st.session_state:
 # ============================================================
 # Yardımcı: Altyazıyı videoya göm
 # ============================================================
+# ---------- Modern altyazı stili (Reels/Shorts safe-zone) ----------
+FONTS_DIR = Path(__file__).parent / "fonts"
+SUBTITLE_FONT_NAME = "Montserrat Black"
+
+# Sosyal medya safe-zone: TikTok/Reels alt UI ~%18, üst ~%12.
+# 1080x1920 referansla altyazıyı %72 yükseklikte konumlandırıyoruz.
+# PlayResY=1920 ile MarginV=540 → ekranın altından 540px yukarıda (yaklaşık y=1380, %72).
+SUB_PLAY_RES_X = 1080
+SUB_PLAY_RES_Y = 1920
+SUB_MARGIN_V = 540
+SUB_MARGIN_LR = 80
+SUB_FONT_SIZE = 84  # Reels için kalın ve büyük
+
+# Türkçe küçük bağlaç/ek listesi — büyük harfle başlasa bile özel isim sayma
+TR_STOPWORDS = {
+    "Ve", "Veya", "Ama", "Fakat", "Lakin", "Çünkü", "Yani", "Ki", "Da", "De",
+    "Bir", "Bu", "Şu", "O", "Ben", "Sen", "Biz", "Siz", "Onlar",
+    "Ne", "Niye", "Neden", "Nasıl", "Hangi", "Her", "Bazı", "Bütün", "Tüm",
+    "Çok", "Az", "Daha", "En", "Hem", "Ya", "İse", "İçin", "Gibi", "Kadar",
+}
+
+
+def _srt_time_to_ass(ts: str) -> str:
+    """'00:01:23,456' -> '0:01:23.45' (ASS centisecond)."""
+    h, m, rest = ts.split(":")
+    s, ms = rest.split(",")
+    cs = int(round(int(ms) / 10))
+    return f"{int(h)}:{int(m):02d}:{int(s):02d}.{cs:02d}"
+
+
+def _highlight_words(text: str) -> str:
+    """Büyük harfle başlayan özel isimleri ve sayıları sarı renge boyar."""
+    yellow_open = r"{\c&H00FFFF&}"
+    white_close = r"{\c&HFFFFFF&}"
+
+    def repl(match: "re.Match[str]") -> str:
+        word = match.group(0)
+        # Sayı içeriyorsa (100, 3-2, 90'ında vb.)
+        if any(ch.isdigit() for ch in word):
+            return f"{yellow_open}{word}{white_close}"
+        # Büyük harfle başlıyor + stopword değilse
+        first = word[0]
+        if first.isalpha() and first.upper() == first and first.lower() != first:
+            stripped = word.rstrip("'’`.,;:!?")
+            base = stripped.split("'")[0].split("’")[0]
+            if base and base not in TR_STOPWORDS:
+                return f"{yellow_open}{word}{white_close}"
+        return word
+
+    # Token = harf/rakam/kesme işareti/tire dizisi
+    return re.sub(r"[\wÇĞİıÖŞÜçğıöşü’'\-]+", repl, text)
+
+
+def srt_to_ass(srt_content: str) -> str:
+    """SRT içeriğini, vurgulu ve modern stilli bir ASS dosyasına dönüştürür."""
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {SUB_PLAY_RES_X}
+PlayResY: {SUB_PLAY_RES_Y}
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Modern,{SUBTITLE_FONT_NAME},{SUB_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,1,0,0,0,100,100,2,0,1,5,2,2,{SUB_MARGIN_LR},{SUB_MARGIN_LR},{SUB_MARGIN_V},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    events = []
+    blocks = re.split(r"\r?\n\r?\n", srt_content.strip())
+    for block in blocks:
+        lines = [ln for ln in block.splitlines() if ln.strip()]
+        if len(lines) < 2:
+            continue
+        # 1. satır index olabilir, ya da timing
+        timing_idx = 0 if "-->" in lines[0] else 1
+        if timing_idx >= len(lines):
+            continue
+        timing = lines[timing_idx]
+        m = re.match(r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})", timing)
+        if not m:
+            continue
+        start = _srt_time_to_ass(m.group(1))
+        end = _srt_time_to_ass(m.group(2))
+        text_lines = lines[timing_idx + 1:]
+        text = "\\N".join(_highlight_words(tl) for tl in text_lines)
+        events.append(f"Dialogue: 0,{start},{end},Modern,,0,0,0,,{text}")
+
+    return header + "\n".join(events) + "\n"
+
+
 def burn_subtitles(video_bytes: bytes, srt_content: str, output_path: str) -> str:
-    """FFmpeg ile altyazıyı videoya gömer ve çıktı dosya yolunu döndürür."""
+    """FFmpeg ile modern ASS altyazısını videoya gömer."""
     work_dir = os.path.dirname(output_path)
     video_path = os.path.join(work_dir, "_burn_input.mp4")
-    srt_path = os.path.join(work_dir, "_burn_subs.srt")
+    ass_path = os.path.join(work_dir, "_burn_subs.ass")
 
     with open(video_path, "wb") as f:
         f.write(video_bytes)
-    with open(srt_path, "w", encoding="utf-8") as f:
-        f.write(srt_content)
 
-    srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+    ass_content = srt_to_ass(srt_content)
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(ass_content)
+
+    ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
+    fonts_escaped = str(FONTS_DIR).replace("\\", "/").replace(":", "\\:")
+
+    vf = f"ass='{ass_escaped}':fontsdir='{fonts_escaped}'"
 
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-vf", f"subtitles='{srt_escaped}':force_style='Fontname=Arial,FontSize=8,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,Bold=1,Outline=0,Shadow=0,MarginV=60,Alignment=2,MarginL=20,MarginR=20,BorderStyle=4'",
+        "-vf", vf,
         "-c:a", "copy",
         "-preset", "fast",
         output_path,
@@ -495,10 +594,9 @@ def burn_subtitles(video_bytes: bytes, srt_content: str, output_path: str) -> st
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg hatası: {result.stderr[-500:]}")
+        raise RuntimeError(f"FFmpeg hatası: {result.stderr[-800:]}")
 
-    # Geçici giriş dosyalarını temizle, çıktıyı bırak
-    for p in (video_path, srt_path):
+    for p in (video_path, ass_path):
         try:
             os.remove(p)
         except OSError:
