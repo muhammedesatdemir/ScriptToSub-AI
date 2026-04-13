@@ -458,42 +458,53 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # ============================================================
 # Session State
 # ============================================================
-for key in ("srt_content", "segments", "aligned", "sub_video_bytes"):
+for key in ("srt_content", "segments", "aligned", "sub_video_path", "sub_video_filename"):
     st.session_state.setdefault(key, None)
+
+
+# Oturum boyunca kalıcı bir çalışma dizini — download sırasında
+# dosyanın yaşaması gerektiği için TemporaryDirectory KULLANMIYORUZ.
+if "work_dir" not in st.session_state:
+    st.session_state.work_dir = tempfile.mkdtemp(prefix="script2sub_")
 
 
 # ============================================================
 # Yardımcı: Altyazıyı videoya göm
 # ============================================================
-def burn_subtitles(video_bytes: bytes, srt_content: str, video_name: str) -> bytes:
-    """FFmpeg ile altyazıyı videoya gömüp bytes olarak döndürür."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        video_path = os.path.join(tmpdir, "input.mp4")
-        srt_path = os.path.join(tmpdir, "subs.srt")
-        output_path = os.path.join(tmpdir, "output.mp4")
+def burn_subtitles(video_bytes: bytes, srt_content: str, output_path: str) -> str:
+    """FFmpeg ile altyazıyı videoya gömer ve çıktı dosya yolunu döndürür."""
+    work_dir = os.path.dirname(output_path)
+    video_path = os.path.join(work_dir, "_burn_input.mp4")
+    srt_path = os.path.join(work_dir, "_burn_subs.srt")
 
-        with open(video_path, "wb") as f:
-            f.write(video_bytes)
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+    with open(video_path, "wb") as f:
+        f.write(video_bytes)
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write(srt_content)
 
-        srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+    srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", f"subtitles='{srt_escaped}':force_style='Fontname=Arial,FontSize=8,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,Bold=1,Outline=0,Shadow=0,MarginV=60,Alignment=2,MarginL=20,MarginR=20,BorderStyle=4'",
-            "-c:a", "copy",
-            "-preset", "fast",
-            output_path,
-        ]
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", f"subtitles='{srt_escaped}':force_style='Fontname=Arial,FontSize=8,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,Bold=1,Outline=0,Shadow=0,MarginV=60,Alignment=2,MarginL=20,MarginR=20,BorderStyle=4'",
+        "-c:a", "copy",
+        "-preset", "fast",
+        output_path,
+    ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg hatası: {result.stderr[-500:]}")
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg hatası: {result.stderr[-500:]}")
 
-        with open(output_path, "rb") as f:
-            return f.read()
+    # Geçici giriş dosyalarını temizle, çıktıyı bırak
+    for p in (video_path, srt_path):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+    return output_path
 
 
 # ============================================================
@@ -644,7 +655,15 @@ if st.button("✨  Altyazı Oluştur", type="primary", use_container_width=True)
         st.session_state.srt_content = None
         st.session_state.segments = None
         st.session_state.aligned = None
-        st.session_state.sub_video_bytes = None
+        # Önceki altyazılı video dosyasını da temizle
+        old_path = st.session_state.get("sub_video_path")
+        if old_path and os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+        st.session_state.sub_video_path = None
+        st.session_state.sub_video_filename = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, video_file.name)
@@ -751,40 +770,55 @@ margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;'>
 
     dl1, dl2 = st.columns(2)
 
+    # Video dosya adını session'a kaydet — re-run'larda kaybolmasın
+    if video_file and not st.session_state.sub_video_filename:
+        st.session_state.sub_video_filename = Path(video_file.name).stem
+
+    display_stem = st.session_state.sub_video_filename or (
+        Path(video_file.name).stem if video_file else "output"
+    )
+
     with dl1:
         st.download_button(
             label="📄  SRT Dosyasını İndir",
             data=srt_content,
-            file_name=f"{Path(video_file.name).stem}.srt" if video_file else "output.srt",
+            file_name=f"{display_stem}.srt",
             mime="text/plain",
             use_container_width=True,
+            key="dl_srt",
         )
 
     with dl2:
-        if video_file:
-            if st.session_state.sub_video_bytes:
-                st.download_button(
-                    label="🎥  Altyazılı Videoyu İndir",
-                    data=st.session_state.sub_video_bytes,
-                    file_name=f"{Path(video_file.name).stem}_altyazili.mp4",
-                    mime="video/mp4",
-                    use_container_width=True,
-                )
-            else:
-                if st.button("🔥  Altyazıyı Videoya Göm", use_container_width=True):
-                    with st.spinner("Video oluşturuluyor... (FFmpeg çalışıyor)"):
-                        try:
-                            video_bytes = video_file.getbuffer().tobytes()
-                            result_bytes = burn_subtitles(
-                                video_bytes, srt_content, video_file.name
-                            )
-                            st.session_state.sub_video_bytes = result_bytes
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Video oluşturma hatası: {str(e)}")
+        sub_path = st.session_state.sub_video_path
+        if sub_path and os.path.exists(sub_path):
+            # Dosyadan oku — Streamlit büyük bytes'ı burada cache'ler
+            with open(sub_path, "rb") as f:
+                video_data = f.read()
+            st.download_button(
+                label="🎥  Altyazılı Videoyu İndir",
+                data=video_data,
+                file_name=f"{display_stem}_altyazili.mp4",
+                mime="video/mp4",
+                use_container_width=True,
+                key="dl_burned_video",
+            )
+        elif video_file:
+            if st.button("🔥  Altyazıyı Videoya Göm", use_container_width=True, key="btn_burn"):
+                with st.spinner("Video oluşturuluyor... (FFmpeg çalışıyor)"):
+                    try:
+                        video_bytes = video_file.getbuffer().tobytes()
+                        output_path = os.path.join(
+                            st.session_state.work_dir,
+                            f"{display_stem}_altyazili.mp4",
+                        )
+                        burn_subtitles(video_bytes, srt_content, output_path)
+                        st.session_state.sub_video_path = output_path
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Video oluşturma hatası: {str(e)}")
 
     # Altyazılı video önizleme
-    if st.session_state.sub_video_bytes:
+    if st.session_state.sub_video_path and os.path.exists(st.session_state.sub_video_path):
         st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
         st.markdown(
             '<div class="section-title"><span class="icon">▶️</span>Altyazılı Video Önizleme</div>',
@@ -792,7 +826,8 @@ margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;'>
         )
         pv_left, pv_mid, pv_right = st.columns([1, 2, 1])
         with pv_mid:
-            st.video(st.session_state.sub_video_bytes)
+            # Dosya yolundan göster — bytes bellekte tutmuyoruz
+            st.video(st.session_state.sub_video_path)
 
     # Segment önizleme
     st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
