@@ -178,6 +178,21 @@ section[data-testid="stSidebar"] hr {
     border-color: var(--border);
     margin: 1.5rem 0 !important;
 }
+/* Sidebar kapalıyken görünen "geri aç" oku — her zaman görünür kalsın */
+button[data-testid="stSidebarCollapsedControl"],
+div[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: var(--accent-dim) !important;
+    border: 1px solid var(--accent-border) !important;
+    border-radius: 8px !important;
+    color: var(--accent) !important;
+    z-index: 999999 !important;
+    top: 0.75rem !important;
+    left: 0.75rem !important;
+}
 
 /* ---------- Inputs: selectbox, text input, textarea ---------- */
 div[data-baseweb="select"] > div,
@@ -481,9 +496,10 @@ SUBTITLE_FONT_NAME = "Montserrat Black"
 # PlayResY=1920 ile MarginV=540 → ekranın altından 540px yukarıda (yaklaşık y=1380, %72).
 SUB_PLAY_RES_X = 1080
 SUB_PLAY_RES_Y = 1920
-SUB_MARGIN_V = 540
-SUB_MARGIN_LR = 80
-SUB_FONT_SIZE = 84  # Reels için kalın ve büyük
+SUB_MARGIN_V = 410   # Alt UI butonlarının üstünde, aksiyona daha az girer
+SUB_MARGIN_LR = 60   # Yatay safe-zone — sağdan/soldan taşmayı engeller
+SUB_FONT_SIZE = 82   # Reels için kalın, biraz daha kompakt
+SUB_MAX_CHARS_PER_LINE = 28  # Akıllı satır kırma eşiği
 
 # Türkçe küçük bağlaç/ek listesi — büyük harfle başlasa bile özel isim sayma
 TR_STOPWORDS = {
@@ -500,6 +516,40 @@ def _srt_time_to_ass(ts: str) -> str:
     s, ms = rest.split(",")
     cs = int(round(int(ms) / 10))
     return f"{int(h)}:{int(m):02d}:{int(s):02d}.{cs:02d}"
+
+
+def _smart_wrap(text: str, max_chars: int = SUB_MAX_CHARS_PER_LINE) -> list[str]:
+    """Tek satırlık metni en fazla iki satıra dengeli böler.
+
+    - Uzunluk eşiğin altındaysa olduğu gibi döner.
+    - Aksi halde kelime sınırlarında, iki satırın uzunluk farkı en az
+      olacak biçimde böler (görsel denge).
+    """
+    text = text.strip()
+    if len(text) <= max_chars:
+        return [text]
+
+    words = text.split()
+    if len(words) < 2:
+        return [text]
+
+    best_idx = 1
+    best_diff = float("inf")
+    for i in range(1, len(words)):
+        left = " ".join(words[:i])
+        right = " ".join(words[i:])
+        # İki satır da eşiğe yakın olmalı; aşan kombinasyonlar cezalı
+        penalty = 0
+        if len(left) > max_chars:
+            penalty += (len(left) - max_chars) * 4
+        if len(right) > max_chars:
+            penalty += (len(right) - max_chars) * 4
+        diff = abs(len(left) - len(right)) + penalty
+        if diff < best_diff:
+            best_diff = diff
+            best_idx = i
+
+    return [" ".join(words[:best_idx]), " ".join(words[best_idx:])]
 
 
 def _highlight_words(text: str) -> str:
@@ -532,7 +582,7 @@ ScriptType: v4.00+
 PlayResX: {SUB_PLAY_RES_X}
 PlayResY: {SUB_PLAY_RES_Y}
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -559,7 +609,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         start = _srt_time_to_ass(m.group(1))
         end = _srt_time_to_ass(m.group(2))
         text_lines = lines[timing_idx + 1:]
-        text = "\\N".join(_highlight_words(tl) for tl in text_lines)
+        # SRT'deki olası satır kırılımlarını birleştir, sonra akıllı yeniden böl
+        joined = " ".join(tl.strip() for tl in text_lines if tl.strip())
+        wrapped = _smart_wrap(joined)
+        text = "\\N".join(_highlight_words(line) for line in wrapped)
         events.append(f"Dialogue: 0,{start},{end},Modern,,0,0,0,,{text}")
 
     return header + "\n".join(events) + "\n"
