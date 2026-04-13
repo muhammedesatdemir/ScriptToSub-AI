@@ -28,12 +28,21 @@ from script_to_sub import (
 # ============================================================
 # Sayfa Ayarları
 # ============================================================
+# Sidebar açık/kapalı durumu — query param ile kalıcı (rerun'a dayanıklı)
+_qp = st.query_params
+_sidebar_qp = _qp.get("sb", "open")
+_sidebar_default = "collapsed" if _sidebar_qp == "closed" else "expanded"
+
 st.set_page_config(
     page_title="Script-to-Sub",
     page_icon="🎬",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state=_sidebar_default,
 )
+
+# Session state ile takip
+if "sidebar_open" not in st.session_state:
+    st.session_state.sidebar_open = (_sidebar_default == "expanded")
 
 # ============================================================
 # Modern Tema — Turkuaz Accent + Koyu Arkaplan
@@ -178,20 +187,71 @@ section[data-testid="stSidebar"] hr {
     border-color: var(--border);
     margin: 1.5rem 0 !important;
 }
-/* Sidebar kapalıyken görünen "geri aç" oku — her zaman görünür kalsın */
-button[data-testid="stSidebarCollapsedControl"],
-div[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
+/* Streamlit üst-sağ menü ve Deploy butonunu gizle */
+[data-testid="stToolbar"],
+[data-testid="stDeployButton"],
+[data-testid="stStatusWidget"],
+header [data-testid="stMainMenu"],
+.stDeployButton,
+button[kind="headerNoPadding"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Streamlit'in YERLEŞİK sidebar kapatma X'ini tamamen gizle —
+   localStorage'a yazıp state'i kilitlediği için kullanılmasın.
+   Kapatma sadece bizim özel ✕ butonumuzla yapılsın. */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarHeader"] button,
+section[data-testid="stSidebar"] button[kind="header"],
+section[data-testid="stSidebar"] [data-testid="baseButton-headerNoPadding"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+/* Sidebar kapalıyken görünen "geri aç" oku — tüm Streamlit sürümlerini kapsa */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+button[kind="header"],
+[aria-label="Open sidebar"],
+[aria-label="open sidebar"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
-    background: var(--accent-dim) !important;
-    border: 1px solid var(--accent-border) !important;
-    border-radius: 8px !important;
-    color: var(--accent) !important;
+    background: var(--accent) !important;
+    border: 2px solid var(--accent) !important;
+    border-radius: 10px !important;
+    color: #001014 !important;
     z-index: 999999 !important;
-    top: 0.75rem !important;
-    left: 0.75rem !important;
+    top: 0.9rem !important;
+    left: 0.9rem !important;
+    width: 44px !important;
+    height: 44px !important;
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: sb-pulse 2.2s ease-out infinite;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+button[kind="header"] svg,
+[aria-label="Open sidebar"] svg {
+    color: #001014 !important;
+    fill: #001014 !important;
+    width: 22px !important;
+    height: 22px !important;
+}
+[data-testid="stSidebarCollapsedControl"]:hover,
+[data-testid="collapsedControl"]:hover,
+button[kind="header"]:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 18px rgba(0, 229, 255, 0.7);
+}
+@keyframes sb-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 14px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
 }
 
 /* ---------- Inputs: selectbox, text input, textarea ---------- */
@@ -731,8 +791,72 @@ def burn_subtitles(video_bytes: bytes, srt_content: str, output_path: str) -> st
 
 
 # ============================================================
-# Hero Başlık
+# Hero Başlık + Sidebar Toggle
 # ============================================================
+# "Ayarları Göster" butonu — iframe içinde, parent window'a fixed buton enjekte eder
+import streamlit.components.v1 as _components
+_components.html(
+    """
+    <script>
+    (function() {
+      const doc = window.parent.document;
+      // Eski butonu temizle (rerun'larda duplicate olmasın)
+      const old = doc.getElementById('s2s-open-sb-btn');
+      if (old) old.remove();
+
+      // Sidebar zaten açıksa butonu ekleme
+      const sb = doc.querySelector('section[data-testid="stSidebar"]');
+      if (sb) {
+        const w = sb.getBoundingClientRect().width;
+        const ariaExpanded = sb.getAttribute('aria-expanded');
+        if (w > 50 && ariaExpanded !== 'false') {
+          return;
+        }
+      }
+
+      const btn = doc.createElement('button');
+      btn.id = 's2s-open-sb-btn';
+      btn.innerHTML = '⚙️ Ayarlar';
+      btn.style.cssText = `
+        position: fixed; top: 14px; right: 18px; z-index: 999999;
+        background: #00E5FF; color: #001014; border: none;
+        padding: 10px 18px; border-radius: 10px; font-weight: 700;
+        font-family: inherit; font-size: 14px; cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0,229,255,0.35);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      `;
+      btn.addEventListener('mouseenter', () => {
+        btn.style.transform = 'scale(1.05)';
+        btn.style.boxShadow = '0 6px 20px rgba(0,229,255,0.55)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.transform = 'scale(1)';
+        btn.style.boxShadow = '0 4px 14px rgba(0,229,255,0.35)';
+      });
+      btn.addEventListener('click', () => {
+        // Streamlit'in sidebar state'i localStorage'da tutuluyor — temizle ki
+        // initial_sidebar_state='expanded' devreye girebilsin.
+        try {
+          const ls = window.parent.localStorage;
+          for (let i = ls.length - 1; i >= 0; i--) {
+            const k = ls.key(i);
+            if (k && (k.toLowerCase().includes('sidebar') ||
+                      k.toLowerCase().includes('stsidebar'))) {
+              ls.removeItem(k);
+            }
+          }
+        } catch (e) {}
+        const url = new URL(window.parent.location.href);
+        url.searchParams.set('sb', 'open');
+        window.parent.location.href = url.toString();
+      });
+      doc.body.appendChild(btn);
+    })();
+    </script>
+    """,
+    height=0,
+)
+
 st.markdown(
     """
 <div class="hero">
@@ -749,7 +873,14 @@ st.markdown(
 # Sidebar: Ayarlar
 # ============================================================
 with st.sidebar:
-    st.markdown("## ⚙️  Ayarlar")
+    _hdr_l, _hdr_r = st.columns([3, 1])
+    with _hdr_l:
+        st.markdown("## ⚙️  Ayarlar")
+    with _hdr_r:
+        if st.button("✕", key="close_sidebar_btn", help="Ayarları gizle"):
+            st.session_state.sidebar_open = False
+            st.query_params["sb"] = "closed"
+            st.rerun()
 
     st.markdown("### Transkripsiyon")
     model_size = st.selectbox(
