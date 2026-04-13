@@ -1,8 +1,8 @@
 """
-Script-to-Sub: Streamlit Arayuzu
-=================================
-Video + Script yukleyerek otomatik altyazi olusturma.
-Altyaziyi videoya gomme ve indirme destegi.
+Script-to-Sub: Modern Streamlit Arayüzü
+========================================
+Video + script yükleyerek otomatik altyazı oluşturma.
+Altyazıyı videoya gömme ve indirme desteği.
 """
 
 import streamlit as st
@@ -24,24 +24,449 @@ from script_to_sub import (
     DEFAULT_PHONETIC_DICT,
 )
 
-# --- Sayfa Ayarlari ---
-st.set_page_config(page_title="Script-to-Sub", page_icon="CC", layout="wide")
-st.title("Script-to-Sub")
-st.markdown("Video metninden otomatik altyazi olusturma sistemi")
+# ============================================================
+# Sayfa Ayarları
+# ============================================================
+st.set_page_config(
+    page_title="Script-to-Sub",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# --- Session State Baslangic ---
-if "srt_content" not in st.session_state:
-    st.session_state.srt_content = None
-if "segments" not in st.session_state:
-    st.session_state.segments = None
-if "aligned" not in st.session_state:
-    st.session_state.aligned = None
-if "sub_video_bytes" not in st.session_state:
-    st.session_state.sub_video_bytes = None
+# ============================================================
+# Modern Tema — Turkuaz Accent + Koyu Arkaplan
+# ============================================================
+CUSTOM_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    --accent: #2DD4BF;
+    --accent-hover: #5EEAD4;
+    --accent-dim: rgba(45, 212, 191, 0.12);
+    --accent-border: rgba(45, 212, 191, 0.35);
+    --bg-primary: #0B1220;
+    --bg-secondary: #111827;
+    --bg-card: #0F1A2E;
+    --bg-elevated: #162033;
+    --border: rgba(148, 163, 184, 0.12);
+    --border-strong: rgba(148, 163, 184, 0.22);
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-dim: #64748B;
+}
+
+html, body, [class*="css"], .stApp, .stMarkdown, .stText, button, input, textarea, select {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+.stApp {
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(45, 212, 191, 0.08), transparent),
+                linear-gradient(180deg, #0B1220 0%, #0A0F1C 100%);
+    color: var(--text-primary);
+}
+
+#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+.block-container { padding-top: 2.5rem !important; padding-bottom: 4rem !important; max-width: 1200px; }
+
+/* ---------- Hero Başlık ---------- */
+.hero {
+    text-align: center;
+    padding: 1.5rem 0 2.5rem 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2.5rem;
+}
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 1.25rem;
+    letter-spacing: 0.02em;
+}
+.hero-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.hero h1 {
+    font-size: 3.2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 0 0 0.75rem 0;
+    background: linear-gradient(135deg, #F1F5F9 0%, #2DD4BF 60%, #5EEAD4 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.1;
+}
+.hero p {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    max-width: 640px;
+    margin: 0 auto;
+    font-weight: 400;
+    line-height: 1.6;
+}
+
+/* ---------- Section Başlıkları ---------- */
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.01em;
+}
+.section-title .icon {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+
+/* ---------- Card Wrapper ---------- */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 16px !important;
+    padding: 1.5rem !important;
+    transition: border-color 0.2s ease;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: var(--border-strong) !important;
+}
+
+/* ---------- Sidebar ---------- */
+section[data-testid="stSidebar"] {
+    background: var(--bg-secondary) !important;
+    border-right: 1px solid var(--border);
+}
+section[data-testid="stSidebar"] > div { padding-top: 2rem; }
+section[data-testid="stSidebar"] h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1.25rem;
+    letter-spacing: -0.01em;
+}
+section[data-testid="stSidebar"] h3 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+section[data-testid="stSidebar"] hr {
+    border-color: var(--border);
+    margin: 1.5rem 0 !important;
+}
+
+/* ---------- Inputs: selectbox, text input, textarea ---------- */
+div[data-baseweb="select"] > div,
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-baseweb="input"] input {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text-primary) !important;
+    font-family: 'Inter', sans-serif !important;
+    transition: all 0.2s ease;
+}
+div[data-baseweb="select"] > div:hover,
+div[data-testid="stTextInput"] input:hover,
+div[data-testid="stTextArea"] textarea:hover {
+    border-color: var(--border-strong) !important;
+}
+div[data-baseweb="select"] > div:focus-within,
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-dim) !important;
+}
+
+/* Label styling */
+label, .stRadio label, .stCheckbox label {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+}
+
+/* ---------- Checkbox ---------- */
+.stCheckbox > label > div[data-testid="stCheckbox"] > div {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+}
+
+/* ---------- Radio ---------- */
+div[data-testid="stRadio"] > div {
+    gap: 0.5rem;
+}
+div[data-testid="stRadio"] label {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 1rem;
+    transition: all 0.15s ease;
+}
+div[data-testid="stRadio"] label:hover {
+    border-color: var(--accent-border);
+}
+
+/* ---------- File Uploader ---------- */
+div[data-testid="stFileUploader"] section {
+    background: var(--bg-elevated) !important;
+    border: 2px dashed var(--border-strong) !important;
+    border-radius: 14px !important;
+    padding: 2rem 1rem !important;
+    transition: all 0.2s ease;
+}
+div[data-testid="stFileUploader"] section:hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-dim) !important;
+}
+div[data-testid="stFileUploader"] section small {
+    color: var(--text-dim) !important;
+}
+div[data-testid="stFileUploader"] button {
+    background: transparent !important;
+    border: 1px solid var(--accent-border) !important;
+    color: var(--accent) !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+}
+div[data-testid="stFileUploader"] button:hover {
+    background: var(--accent-dim) !important;
+    border-color: var(--accent) !important;
+}
+
+/* ---------- Buttons ---------- */
+.stButton > button, .stDownloadButton > button {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 0.65rem 1.25rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s ease;
+}
+.stButton > button:hover, .stDownloadButton > button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+    transform: translateY(-1px);
+}
+.stButton > button:focus, .stDownloadButton > button:focus {
+    box-shadow: 0 0 0 3px var(--accent-dim) !important;
+    outline: none !important;
+}
+
+/* Primary button (Altyazı Oluştur) */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #2DD4BF 0%, #14B8A6 100%);
+    color: #0B1220;
+    border: none;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0.9rem 1.5rem;
+    box-shadow: 0 4px 20px rgba(45, 212, 191, 0.25);
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #5EEAD4 0%, #2DD4BF 100%);
+    color: #0B1220;
+    box-shadow: 0 6px 28px rgba(45, 212, 191, 0.4);
+    transform: translateY(-2px);
+}
+
+/* ---------- Progress Bar ---------- */
+div[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, #2DD4BF, #5EEAD4) !important;
+    border-radius: 999px !important;
+}
+div[data-testid="stProgress"] > div > div {
+    background: var(--bg-elevated) !important;
+    border-radius: 999px !important;
+    height: 8px !important;
+}
+
+/* ---------- Metrics ---------- */
+div[data-testid="stMetric"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem;
+    transition: all 0.2s ease;
+}
+div[data-testid="stMetric"]:hover {
+    border-color: var(--accent-border);
+    background: var(--bg-elevated);
+}
+div[data-testid="stMetricLabel"] {
+    color: var(--text-dim) !important;
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+div[data-testid="stMetricValue"] {
+    color: var(--accent) !important;
+    font-weight: 700 !important;
+    font-size: 1.8rem !important;
+}
+
+/* ---------- Alerts ---------- */
+div[data-testid="stAlert"] {
+    border-radius: 12px !important;
+    border-width: 1px !important;
+    padding: 0.9rem 1.1rem !important;
+}
+div[data-baseweb="notification"] {
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* ---------- Expander ---------- */
+.streamlit-expanderHeader, div[data-testid="stExpander"] summary {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text-primary) !important;
+    font-weight: 500 !important;
+}
+.streamlit-expanderHeader:hover, div[data-testid="stExpander"] summary:hover {
+    border-color: var(--accent-border) !important;
+}
+div[data-testid="stExpander"] {
+    border: none !important;
+    background: transparent !important;
+}
+
+/* ---------- Code block ---------- */
+code, pre, .stCode {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text-primary) !important;
+}
+
+/* ---------- Divider ---------- */
+hr {
+    border: none;
+    height: 1px;
+    background: var(--border);
+    margin: 2rem 0;
+}
+
+/* ---------- Video Player ---------- */
+video {
+    border-radius: 12px !important;
+    border: 1px solid var(--border);
+    max-height: 460px !important;
+    width: 100% !important;
+    object-fit: contain;
+    background: #000;
+}
+div[data-testid="stVideo"] {
+    display: flex;
+    justify-content: center;
+}
+
+/* ---------- Segment önizleme satırı ---------- */
+.segment-row {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 0.85rem 1.1rem;
+    margin-bottom: 0.6rem;
+    transition: all 0.15s ease;
+}
+.segment-row:hover {
+    border-color: var(--border-strong);
+    border-left-color: var(--accent-hover);
+    transform: translateX(2px);
+}
+.segment-meta {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-bottom: 0.35rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+.segment-meta .seg-num {
+    color: var(--accent);
+    font-weight: 700;
+}
+.segment-meta .seg-time {
+    color: var(--text-secondary);
+}
+.segment-meta .seg-cps {
+    margin-left: auto;
+    padding: 0.1rem 0.5rem;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    border-radius: 999px;
+    color: var(--accent);
+}
+.segment-text {
+    color: var(--text-primary);
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+/* ---------- Sub label (küçük etiket) ---------- */
+.sub-label {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# ============================================================
+# Session State
+# ============================================================
+for key in ("srt_content", "segments", "aligned", "sub_video_bytes"):
+    st.session_state.setdefault(key, None)
 
 
+# ============================================================
+# Yardımcı: Altyazıyı videoya göm
+# ============================================================
 def burn_subtitles(video_bytes: bytes, srt_content: str, video_name: str) -> bytes:
-    """FFmpeg ile altyaziyi videoya gomup bytes olarak dondurur."""
+    """FFmpeg ile altyazıyı videoya gömüp bytes olarak döndürür."""
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = os.path.join(tmpdir, "input.mp4")
         srt_path = os.path.join(tmpdir, "subs.srt")
@@ -52,8 +477,6 @@ def burn_subtitles(video_bytes: bytes, srt_content: str, video_name: str) -> byt
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write(srt_content)
 
-        # FFmpeg: altyaziyi videoya gom (hardcoded subtitles)
-        # Windows'ta yol icindeki \ ve : icin escape gerekiyor (libass formati)
         srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
 
         cmd = [
@@ -62,89 +485,162 @@ def burn_subtitles(video_bytes: bytes, srt_content: str, video_name: str) -> byt
             "-vf", f"subtitles='{srt_escaped}':force_style='Fontname=Arial,FontSize=8,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,Bold=1,Outline=0,Shadow=0,MarginV=60,Alignment=2,MarginL=20,MarginR=20,BorderStyle=4'",
             "-c:a", "copy",
             "-preset", "fast",
-            output_path
+            output_path,
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg hatasi: {result.stderr[-500:]}")
+            raise RuntimeError(f"FFmpeg hatası: {result.stderr[-500:]}")
 
         with open(output_path, "rb") as f:
             return f.read()
 
 
-# --- Sidebar: Ayarlar ---
-with st.sidebar:
-    st.header("Ayarlar")
+# ============================================================
+# Hero Başlık
+# ============================================================
+st.markdown(
+    """
+<div class="hero">
+    <div class="hero-badge"><span class="dot"></span>Script-Tabanlı Altyazı Motoru</div>
+    <h1>Script-to-Sub</h1>
+    <p>Videonuzu ve konuşma metninizi yükleyin; sistem sesi otomatik tanıyıp
+    script'e kelime düzeyinde hizalayarak TDK uyumlu, profesyonel bir altyazı üretsin.</p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
+# ============================================================
+# Sidebar: Ayarlar
+# ============================================================
+with st.sidebar:
+    st.markdown("## ⚙️  Ayarlar")
+
+    st.markdown("### Transkripsiyon")
     model_size = st.selectbox(
         "Whisper Modeli",
         ["large-v3-turbo", "large-v3", "medium", "small", "base"],
         index=0,
-        help="large-v3-turbo: En hizli ve isabetli."
+        help="large-v3-turbo: en hızlı ve isabetli seçenek.",
     )
 
     vocal_isolation = st.checkbox(
-        "Vokal Izolasyonu (Demucs)",
+        "Vokal İzolasyonu (Demucs)",
         value=True,
-        help="Arka plan muzigi/beat varken aktif edin."
+        help="Arka plan müziği veya beat varken etkinleştirin.",
     )
 
-    st.divider()
-    st.subheader("Fonetik Sozluk")
-
-    use_custom_dict = st.checkbox("Ozel sozluk kullan", value=False)
+    st.markdown("### Fonetik Sözlük")
+    use_custom_dict = st.checkbox("Özel sözlük kullan", value=False)
     custom_dict = None
     if use_custom_dict:
-        dict_file = st.file_uploader("Sozluk JSON dosyasi", type=["json"])
+        dict_file = st.file_uploader(
+            "Sözlük JSON dosyası",
+            type=["json"],
+            label_visibility="collapsed",
+        )
         if dict_file:
             custom_dict = json.loads(dict_file.read().decode("utf-8"))
-            st.success(f"Sozluk yuklendi: {len(custom_dict)} girdi")
+            st.success(f"Sözlük yüklendi — {len(custom_dict)} girdi")
 
-    st.divider()
-    with st.expander("Varsayilan fonetik eslestirmeler"):
+    with st.expander("Varsayılan fonetik eşleştirmeler"):
         for name, variants in DEFAULT_PHONETIC_DICT.items():
-            st.text(f"{name}: {', '.join(variants)}")
+            st.markdown(
+                f"<div style='font-size:0.82rem;padding:0.25rem 0;"
+                f"border-bottom:1px solid rgba(148,163,184,0.08);'>"
+                f"<span style='color:#2DD4BF;font-weight:600;'>{name}</span> "
+                f"<span style='color:#64748B;'>→ {', '.join(variants)}</span></div>",
+                unsafe_allow_html=True,
+            )
 
-# --- Ana Panel: Girdi ---
-col1, col2 = st.columns(2)
+    st.markdown("---")
+    st.markdown(
+        "<div style='font-size:0.72rem;color:#64748B;text-align:center;"
+        "line-height:1.5;'>Script-to-Sub<br/>Hibrit STT + Forced Alignment</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# Ana İçerik: Giriş Paneli
+# ============================================================
+col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    st.subheader("Video Dosyasi")
-    video_file = st.file_uploader(
-        "Video yukle (MP4, MKV, AVI, MOV)",
-        type=["mp4", "mkv", "avi", "mov", "webm"]
-    )
-    if video_file:
-        st.video(video_file)
+    with st.container(border=True):
+        st.markdown(
+            '<div class="section-title"><span class="icon">🎬</span>Video Dosyası</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="sub-label">Desteklenen formatlar: MP4, MKV, AVI, MOV, WEBM</div>',
+            unsafe_allow_html=True,
+        )
+        video_file = st.file_uploader(
+            "Video yükle",
+            type=["mp4", "mkv", "avi", "mov", "webm"],
+            label_visibility="collapsed",
+        )
+        if video_file:
+            st.video(video_file)
 
 with col2:
-    st.subheader("Script Metni")
-    script_input_mode = st.radio("Script girisi", ["Dosya yukle", "Manuel yaz"], horizontal=True)
-
-    script_text = ""
-    if script_input_mode == "Dosya yukle":
-        script_file = st.file_uploader("Script dosyasi (TXT)", type=["txt"])
-        if script_file:
-            script_text = script_file.read().decode("utf-8")
-            st.text_area("Script onizleme", script_text, height=200, disabled=True)
-    else:
-        script_text = st.text_area(
-            "Script metnini yazin",
-            height=200,
-            placeholder="Video metnini buraya yapistirin..."
+    with st.container(border=True):
+        st.markdown(
+            '<div class="section-title"><span class="icon">📝</span>Script Metni</div>',
+            unsafe_allow_html=True,
+        )
+        script_input_mode = st.radio(
+            "Script girişi",
+            ["Dosya yükle", "Manuel yaz"],
+            horizontal=True,
+            label_visibility="collapsed",
         )
 
-# --- Altyazi Olustur Butonu ---
-st.divider()
+        script_text = ""
+        if script_input_mode == "Dosya yükle":
+            st.markdown(
+                '<div class="sub-label">TXT dosyası yükleyin</div>',
+                unsafe_allow_html=True,
+            )
+            script_file = st.file_uploader(
+                "Script dosyası",
+                type=["txt"],
+                label_visibility="collapsed",
+            )
+            if script_file:
+                script_text = script_file.read().decode("utf-8")
+                st.text_area(
+                    "Önizleme",
+                    script_text,
+                    height=180,
+                    disabled=True,
+                    label_visibility="collapsed",
+                )
+        else:
+            st.markdown(
+                '<div class="sub-label">Metni aşağıya yazın veya yapıştırın</div>',
+                unsafe_allow_html=True,
+            )
+            script_text = st.text_area(
+                "Script metni",
+                height=200,
+                placeholder="Video metnini buraya yapıştırın...",
+                label_visibility="collapsed",
+            )
 
-if st.button("Altyazi Olustur", type="primary", use_container_width=True):
+# ============================================================
+# Altyazı Oluştur Butonu
+# ============================================================
+st.markdown("<div style='margin: 2rem 0 1rem 0;'></div>", unsafe_allow_html=True)
+
+if st.button("✨  Altyazı Oluştur", type="primary", use_container_width=True):
     if not video_file:
-        st.error("Lutfen bir video dosyasi yukleyin.")
+        st.error("Lütfen bir video dosyası yükleyin.")
     elif not script_text.strip():
-        st.error("Lutfen script metnini girin.")
+        st.error("Lütfen script metnini girin.")
     else:
-        # Onceki sonuclari temizle
         st.session_state.srt_content = None
         st.session_state.segments = None
         st.session_state.aligned = None
@@ -156,53 +652,45 @@ if st.button("Altyazi Olustur", type="primary", use_container_width=True):
                 f.write(video_file.getbuffer())
 
             srt_path = os.path.join(tmpdir, "output.srt")
-            progress = st.progress(0, text="Baslatiliyor...")
+            progress = st.progress(0, text="Başlatılıyor...")
 
             try:
-                # Katman 0: Vokal izolasyonu veya duz ses cikarma
                 whisper_input = None
                 if vocal_isolation:
-                    progress.progress(5, text="Vokal izolasyonu (Demucs)... (1-2 dk surebilir)")
+                    progress.progress(5, text="Vokal izolasyonu (Demucs)... (1-2 dk sürebilir)")
                     vocal_path = isolate_vocals(video_path, tmpdir)
                     if vocal_path:
                         whisper_input = vocal_path
 
                 if whisper_input is None:
-                    progress.progress(10, text="Ses cikariliyor...")
+                    progress.progress(10, text="Ses çıkarılıyor...")
                     whisper_input = extract_audio(video_path)
 
-                # Katman 1: Whisper STT
-                progress.progress(40, text=f"Whisper ({model_size}) calisiyor...")
+                progress.progress(40, text=f"Whisper ({model_size}) çalışıyor...")
                 whisper_data = transcribe_with_timestamps(
                     whisper_input, language="tr", model_size=model_size
                 )
 
-                # Temizlik
                 if os.path.exists(whisper_input):
                     try:
                         os.remove(whisper_input)
                     except OSError:
                         pass
 
-                progress.progress(60, text="Metin eslestirme yapiliyor...")
-
-                # Katman 2-3: Eslestirme
+                progress.progress(60, text="Metin eşleştirme yapılıyor...")
                 script_tokens = tokenize_script(script_text)
                 phonetic_dict = custom_dict if custom_dict else DEFAULT_PHONETIC_DICT
                 aligned = enhanced_align_words(
                     script_tokens, whisper_data["all_words"], phonetic_dict
                 )
 
-                progress.progress(80, text="Segmentler olusturuluyor...")
-
-                # Katman 4: Segmentasyon + SRT
+                progress.progress(80, text="Segmentler oluşturuluyor...")
                 segments = create_segments(aligned)
                 segments = optimize_segments(segments)
                 generate_srt(segments, srt_path)
 
-                progress.progress(100, text="Tamamlandi!")
+                progress.progress(100, text="Tamamlandı!")
 
-                # Sonuclari session_state'e kaydet
                 with open(srt_path, "r", encoding="utf-8") as f:
                     st.session_state.srt_content = f.read()
                 st.session_state.segments = segments
@@ -211,90 +699,130 @@ if st.button("Altyazi Olustur", type="primary", use_container_width=True):
                 st.rerun()
 
             except Exception as e:
-                progress.progress(0, text="Hata olustu!")
+                progress.progress(0, text="Hata oluştu!")
                 st.error(f"Hata: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
 
-# --- Sonuclar ---
+# ============================================================
+# Sonuçlar
+# ============================================================
 if st.session_state.srt_content and st.session_state.segments:
     segments = st.session_state.segments
     aligned = st.session_state.aligned
     srt_content = st.session_state.srt_content
 
-    st.success(f"Altyazi hazir! {len(segments)} segment, {len(aligned)} kelime eslesti.")
+    st.markdown("<hr/>", unsafe_allow_html=True)
 
-    # Istatistikler
-    col_s1, col_s2, col_s3 = st.columns(3)
     match_types = {}
     for a in aligned:
         mt = a["match_type"]
         match_types[mt] = match_types.get(mt, 0) + 1
-
     exact = match_types.get("exact", 0) + match_types.get("stem", 0)
     total = len(aligned)
+    pct = 100 * exact // max(total, 1)
 
-    col_s1.metric("Toplam Kelime", f"{total}")
-    col_s2.metric("Dogrudan Eslestirme", f"{exact}/{total} ({100*exact//max(total,1)}%)")
-    col_s3.metric("Segment Sayisi", f"{len(segments)}")
+    st.markdown(
+        f"""
+<div style='background:linear-gradient(135deg,rgba(45,212,191,0.12),rgba(45,212,191,0.04));
+border:1px solid rgba(45,212,191,0.35);border-radius:14px;padding:1.1rem 1.35rem;
+margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;'>
+<span style='font-size:1.25rem;'>✅</span>
+<span style='color:#F1F5F9;font-weight:500;'>Altyazı hazır —
+<span style='color:#2DD4BF;font-weight:700;'>{len(segments)}</span> segment,
+<span style='color:#2DD4BF;font-weight:700;'>{len(aligned)}</span> kelime eşleşti.</span>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    # --- Indirme Butonlari ---
-    st.divider()
-    st.subheader("Indirme")
+    # İstatistikler
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Toplam Kelime", f"{total}")
+    m2.metric("Doğrudan Eşleşme", f"{pct}%", delta=f"{exact}/{total}", delta_color="off")
+    m3.metric("Segment Sayısı", f"{len(segments)}")
 
-    dl_col1, dl_col2 = st.columns(2)
+    # İndirme
+    st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-title"><span class="icon">⬇️</span>İndirme</div>',
+        unsafe_allow_html=True,
+    )
 
-    with dl_col1:
+    dl1, dl2 = st.columns(2)
+
+    with dl1:
         st.download_button(
-            label="SRT Dosyasini Indir",
+            label="📄  SRT Dosyasını İndir",
             data=srt_content,
             file_name=f"{Path(video_file.name).stem}.srt" if video_file else "output.srt",
             mime="text/plain",
-            use_container_width=True
+            use_container_width=True,
         )
 
-    with dl_col2:
+    with dl2:
         if video_file:
-            # Altyazili video olustur butonu
             if st.session_state.sub_video_bytes:
                 st.download_button(
-                    label="Altyazili Videoyu Indir",
+                    label="🎥  Altyazılı Videoyu İndir",
                     data=st.session_state.sub_video_bytes,
                     file_name=f"{Path(video_file.name).stem}_altyazili.mp4",
                     mime="video/mp4",
-                    use_container_width=True
+                    use_container_width=True,
                 )
             else:
-                if st.button("Altyaziyi Videoya Gom", use_container_width=True):
-                    with st.spinner("Video olusturuluyor... (FFmpeg calisiyor)"):
+                if st.button("🔥  Altyazıyı Videoya Göm", use_container_width=True):
+                    with st.spinner("Video oluşturuluyor... (FFmpeg çalışıyor)"):
                         try:
                             video_bytes = video_file.getbuffer().tobytes()
                             result_bytes = burn_subtitles(
-                                video_bytes, srt_content,
-                                video_file.name
+                                video_bytes, srt_content, video_file.name
                             )
                             st.session_state.sub_video_bytes = result_bytes
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Video olusturma hatasi: {str(e)}")
+                            st.error(f"Video oluşturma hatası: {str(e)}")
 
-    # Altyazili video onizleme
+    # Altyazılı video önizleme
     if st.session_state.sub_video_bytes:
-        st.divider()
-        st.subheader("Altyazili Video Onizleme")
-        st.video(st.session_state.sub_video_bytes)
+        st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-title"><span class="icon">▶️</span>Altyazılı Video Önizleme</div>',
+            unsafe_allow_html=True,
+        )
+        pv_left, pv_mid, pv_right = st.columns([1, 2, 1])
+        with pv_mid:
+            st.video(st.session_state.sub_video_bytes)
 
-    # --- Altyazi Onizleme ---
-    st.divider()
-    st.subheader("Altyazi Onizleme")
+    # Segment önizleme
+    st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-title"><span class="icon">📋</span>Segment Önizleme</div>',
+        unsafe_allow_html=True,
+    )
 
+    segments_html = []
     for i, seg in enumerate(segments, 1):
         dur = seg["end"] - seg["start"]
         cps = seg.get("chars_per_sec", len(seg["text"]) / max(dur, 0.1))
-        time_str = f"{seg['start']:.1f}s - {seg['end']:.1f}s ({dur:.1f}s)"
-        st.markdown(f"**#{i}** `{time_str}` | {cps:.0f} chr/s")
-        st.text(seg["text"])
+        # HTML içinde güvenli gösterim için temel escape
+        safe_text = (
+            seg["text"]
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        segments_html.append(
+            f"""<div class="segment-row">
+    <div class="segment-meta">
+        <span class="seg-num">#{i:02d}</span>
+        <span class="seg-time">{seg['start']:.1f}s → {seg['end']:.1f}s · {dur:.1f}s</span>
+        <span class="seg-cps">{cps:.0f} chr/s</span>
+    </div>
+    <div class="segment-text">{safe_text}</div>
+</div>"""
+        )
+    st.markdown("".join(segments_html), unsafe_allow_html=True)
 
-    # Ham SRT
-    with st.expander("Ham SRT Dosyasi"):
+    with st.expander("📜  Ham SRT Dosyası"):
         st.code(srt_content, language=None)
