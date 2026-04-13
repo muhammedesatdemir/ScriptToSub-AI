@@ -499,7 +499,12 @@ SUB_PLAY_RES_Y = 1920
 SUB_MARGIN_V = 410   # Alt UI butonlarının üstünde, aksiyona daha az girer
 SUB_MARGIN_LR = 60   # Yatay safe-zone — sağdan/soldan taşmayı engeller
 SUB_FONT_SIZE = 82   # Reels için kalın, biraz daha kompakt
-SUB_MAX_CHARS_PER_LINE = 28  # Akıllı satır kırma eşiği
+SUB_MAX_CHARS_PER_LINE = 28  # Akıllı satır kırma eşiği (tek satır içi)
+SUB_MAX_CHARS_PER_CUE = 42   # Bir cue'da toplam karakter üst sınırı (≤2 satır garantisi)
+SUB_MAX_WORDS_PER_CUE = 8    # Bir cue'da toplam kelime üst sınırı
+
+# Bölme önceliği: önce noktalama, sonra bağlaçlar
+SPLIT_CONJUNCTIONS = {"ve", "ama", "ise", "fakat", "ancak", "çünkü", "ki", "ya", "veya"}
 
 # Türkçe küçük bağlaç/ek listesi — büyük harfle başlasa bile özel isim sayma
 TR_STOPWORDS = {
@@ -510,12 +515,73 @@ TR_STOPWORDS = {
 }
 
 
-def _srt_time_to_ass(ts: str) -> str:
-    """'00:01:23,456' -> '0:01:23.45' (ASS centisecond)."""
+def _srt_time_to_seconds(ts: str) -> float:
+    """'00:01:23,456' -> 83.456 (saniye)."""
     h, m, rest = ts.split(":")
     s, ms = rest.split(",")
-    cs = int(round(int(ms) / 10))
-    return f"{int(h)}:{int(m):02d}:{int(s):02d}.{cs:02d}"
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+
+def _seconds_to_ass_time(t: float) -> str:
+    """83.456 -> '0:01:23.45' (ASS centisecond)."""
+    if t < 0:
+        t = 0.0
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = int(t % 60)
+    cs = int(round((t - int(t)) * 100))
+    if cs == 100:
+        cs = 0
+        s += 1
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _split_long_cue(text: str, start: float, end: float) -> list[tuple[float, float, str]]:
+    """Cue'yu karakter/kelime sınırına göre bölüp süreyi kelime sayısına oranlar.
+
+    Bölme önceliği: noktalama (',', ';', ':') > bağlaçlar > orta nokta.
+    Anlam bütünlüğü için bağlaç KENDİ parçasının başında kalır.
+    """
+    text = text.strip()
+    words = text.split()
+    if not words:
+        return []
+    if len(text) <= SUB_MAX_CHARS_PER_CUE and len(words) <= SUB_MAX_WORDS_PER_CUE:
+        return [(start, end, text)]
+
+    # Aday bölme noktası bul (kelime indexi: 1..len-1)
+    n = len(words)
+
+    def score(idx: int) -> tuple[int, int]:
+        """Düşük skor = daha iyi. (öncelik, ortalanma cezası)."""
+        prev_word = words[idx - 1]
+        next_word = words[idx]
+        # Öncelik 0: önceki kelime virgül/noktalı virgül/iki nokta ile bitiyor
+        if prev_word.endswith((",", ";", ":")):
+            priority = 0
+        # Öncelik 1: sonraki kelime bir bağlaç
+        elif next_word.lower().strip(",.;:!?'\"") in SPLIT_CONJUNCTIONS:
+            priority = 1
+        else:
+            priority = 2
+        # Ortalanma cezası — ortaya yakın olan tercih edilir
+        center_penalty = abs(idx - n / 2)
+        return (priority, int(center_penalty * 10))
+
+    best_idx = min(range(1, n), key=score)
+    left_words = words[:best_idx]
+    right_words = words[best_idx:]
+
+    # Süreyi kelime sayısına göre orantıla
+    duration = max(end - start, 0.001)
+    left_ratio = len(left_words) / n
+    mid = start + duration * left_ratio
+
+    left_text = " ".join(left_words)
+    right_text = " ".join(right_words)
+
+    # Recursive: parçalar hâlâ uzun olabilir
+    return _split_long_cue(left_text, start, mid) + _split_long_cue(right_text, mid, end)
 
 
 def _smart_wrap(text: str, max_chars: int = SUB_MAX_CHARS_PER_LINE) -> list[str]:
@@ -606,14 +672,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         m = re.match(r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})", timing)
         if not m:
             continue
-        start = _srt_time_to_ass(m.group(1))
-        end = _srt_time_to_ass(m.group(2))
+        start_s = _srt_time_to_seconds(m.group(1))
+        end_s = _srt_time_to_seconds(m.group(2))
         text_lines = lines[timing_idx + 1:]
-        # SRT'deki olası satır kırılımlarını birleştir, sonra akıllı yeniden böl
         joined = " ".join(tl.strip() for tl in text_lines if tl.strip())
-        wrapped = _smart_wrap(joined)
-        text = "\\N".join(_highlight_words(line) for line in wrapped)
-        events.append(f"Dialogue: 0,{start},{end},Modern,,0,0,0,,{text}")
+
+        # 1) Cue'yu karakter/kelime sınırına göre alt-cue'lara böl
+        sub_cues = _split_long_cue(joined, start_s, end_s)
+        # 2) Her alt-cue içinde 2 satıra dengeli wrap + vurgu
+        for s, e, txt in sub_cues:
+            wrapped = _smart_wrap(txt)
+            text = "\\N".join(_highlight_words(line) for line in wrapped)
+            events.append(
+                f"Dialogue: 0,{_seconds_to_ass_time(s)},{_seconds_to_ass_time(e)},Modern,,0,0,0,,{text}"
+            )
 
     return header + "\n".join(events) + "\n"
 
