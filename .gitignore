@@ -1,0 +1,10 @@
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.srt
+*_altyazili.mp4
+_burn_input.mp4
+_burn_subs.ass
