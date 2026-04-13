@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-from altyazi.script_to_sub import (
+from script_to_sub import (
     extract_audio,
     isolate_vocals,
     transcribe_with_timestamps,
